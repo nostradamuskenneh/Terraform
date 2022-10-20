@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>Evaluation_Covid19</title>
+		<link href="https://fonts.googleapis.com/css?family=Roboto+Slab" rel="stylesheet">
+		<link href="quiz.css" rel="stylesheet">
+	</head>
+	<body>
+
+		<div style="text-align: center;">
+			<button class="btn"><a id="save" href="Enregistrement.html"> ENREGISTREMENT </a></button>
+			<button class="btn" id="btnScd" style="display: none;"><a id="secondTest" href="Evaluation-gravite.html">SECOND   TEST RG  </a></button>
+		</div>
+
+		<div id="quizContainer" class="container">
+			<div class="title">Evaluation Covid-19</div>
+			<div id="question" class="question"></div>
+			<label class="option"><input type="radio" name="option" value="1" /> <span id="opt1"></span></label>
+			<label class="option"><input type="radio" name="option" value="2" /> <span id="opt2"></span></label>
+
+
+			<button id="nextButton" class="next-btn" onclick="loadNextQuestion();">Next / Suivant</button>
+
+			
+			
+		</div>
+		<div id="result" class=" result" style="display:none;">
+			
+
+			
+			<div id="question1" class=""></div>
+			
+		    <div id="interpretation" class="question"><a href="index.html"> click here for registration </a> </div>
+		</div>
+
+
+		<script src="question.js"></script>
+		<script src="quiz-script.js"></script>
+		<script src="scripts.js"></script>
+	</body>
+</html>

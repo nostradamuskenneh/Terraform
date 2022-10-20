@@ -1,0 +1,40 @@
+def timestamp = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone('UTC'))
+pipeline {
+    agent {
+        kubernetes {
+            defaultContainer 'dind'
+            yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: dind
+    image: leonardtia/devops-test-repo:develop
+    command:
+    - cat
+    tty: true
+    volumeMounts:
+     - mountPath: '/var/run/docker.sock'
+       name: docker-socket-volume
+    securityContext:
+      privileged: true
+  volumes:
+    - name: docker-socket-volume
+      hostPath:
+        path: '/var/run/docker.sock'
+"""
+        }
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10', daysToKeepStr: '3'))
+        timestamps()
+    }
+    stages {
+        stage ('Verify Helm is Up and Running') {
+            steps {
+                sh 'helm3 version'
+            }
+        }
+    }
+}

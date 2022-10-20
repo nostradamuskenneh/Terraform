@@ -1,0 +1,137 @@
+
+def timestamp = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone('UTC'))
+pipeline {
+    agent any
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '2', daysToKeepStr: '2'))
+        disableConcurrentBuilds()
+        timeout (time: 10, unit: 'MINUTES')
+        timestamps()
+    }
+    parameters {
+        string (name: 'branchName', defaultValue: 'develop', description: 'The branch name docker image')
+        choice (name: 'pushMode', choices: '\ndockerhub\naws-ecr\nboth', description: 'Both will push the image to dockerhub and AWS ECR')
+        string (name: 'dockerhubRepository', defaultValue: 'leonardtia/devops-test-repo', description: 'The Dockerhub repository where to push the image')
+        string (name: 'tag', defaultValue: 'develop', description: 'The image name')
+        string(name: 'docker', defaultValue: 'builder', description: 'Name of the docker image build needed')
+        string(name: 'awsAccountNumber', defaultValue: '064137398917', description: 'Account type')
+        string(name: 'awsRegion', defaultValue: 'us-east-1', description: 'Account region')
+        string(name: 'ecrRepositoryName', defaultValue: 'development', description: 'ECR repository name')
+    }
+    stages {
+        stage ('checkout') {
+            steps {
+                dir("${WORKSPACE}/scr") {
+                    checkout([
+                        $class: 'GitSCM',
+                        branches: [[name: "*/${params.branchName}"]],
+                        doGenerateSubmoduleConfigurations: false,
+                        extensions: [[$class: 'LocalBranch']],
+                        submoduleCfg: [],
+                        userRemoteConfigs: [[
+                        url: 'https://github.com/leonardtia1/tia-devops.git',
+                        credentialsId: 'tia-github-token'
+                        ]]
+                    ])
+                }
+            }
+        }
+        stage("aws access") {
+            steps {
+                script {
+                    docker.withRegistry('','tia-dockerhub-credentials') {
+                        docker.image("leonardtia/devops-test-repo:develop").inside {
+                            withCredentials([usernamePassword(credentialsId: 'aws-access', usernameVariable: 'AWS_ACCESS_KEY', passwordVariable: 'AWS_SECRET_KEY')]) {
+                            sh """
+                                    export AWS_ACCESS_KEY_ID=\${AWS_ACCESS_KEY}
+                                    export AWS_SECRET_ACCESS_KEY=\${AWS_SECRET_KEY}
+                                    export AWS_DEFAULT_REGION=${params.awsRegion}
+                                    terraform --version
+                                    aws s3 ls
+                                """ 
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        stage(test) {
+            steps {
+                dir("${WORKSPACE}/scr") {
+                    script {
+                        docker.withRegistry('','tia-dockerhub-credentials') {
+                            docker.image("leonardtia/devops-test-repo:develop").inside() {
+                                aws_credentials()
+                                sh """
+                                aws s3 ls
+                                """
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+def aws_credentials() {
+    withCredentials([usernamePassword(credentialsId: 'aws-access', usernameVariable: 'AWS_ACCESS_KEY', passwordVariable: 'AWS_SECRET_KEY')]) {
+        sh """
+            export AWS_ACCESS_KEY_ID=\${AWS_ACCESS_KEY}
+            export AWS_SECRET_ACCESS_KEY=\${AWS_SECRET_KEY}
+            export AWS_DEFAULT_REGION=${params.awsRegion}
+            aws s3 ls
+            """ 
+        }
+}
+
+def aws_credentials() {
+    withCredentials([usernamePassword(credentialsId: 'aws-access', usernameVariable: 'AWS_ACCESS_KEY', passwordVariable: 'AWS_SECRET_KEY')]) {
+        sh """
+            export AWS_ACCESS_KEY_ID=\${AWS_ACCESS_KEY}
+            export AWS_SECRET_ACCESS_KEY=\${AWS_SECRET_KEY}
+            export AWS_DEFAULT_REGION=${params.awsRegion}
+            aws s3 ls
+            """ 
+        }
+}
+
+
+def dockerhub_ecr() {
+    dockerImage = docker.build("${params.account}" + ":${params.account}")
+}
+
+def sanityCheck()
+{
+    println("::=========================================================================================::")
+    sh """
+    [[ -z "${params.pushMode}" ]] && echo "Parameter pushMode name is not set" && exit 2
+
+    if [[ "${params.pushMode}" == "both" ]]
+    then
+        [[ -z ${params.branchName} ]] && echo "Parameter branchName name is not set" && exit 2
+        [[ -z ${params.dockerhubRepository} ]] && echo "Parameter dockerhubRepository is not set" && exit 2
+        [[ -z ${params.tag} ]] && echo "Parameter tag name is not set" && exit 2
+        [[ -z ${params.awsAccountNumber} ]] && echo "Parameter awsAccountNumber is not set" && exit 2
+        [[ -z ${params.awsRegion} ]] && echo "Parameter awsRegion is not set" && exit 2
+        [[ -z ${params.ecrRepositoryName} ]] && echo "Parameter ecrRepositoryName is not set" && exit 2
+
+    elif [[ "${params.pushMode}" == "aws-ecr" ]] 
+    then
+        [[ -z ${params.branchName} ]] && echo "Parameter branchName name is not set" && exit 2
+        [[ -z ${params.tag} ]] && echo "Parameter tag name is not set" && exit 2
+        [[ -z ${params.awsAccountNumber} ]] && echo "Parameter awsAccountNumber is not set" && exit 2
+        [[ -z ${params.awsRegion} ]] && echo "Parameter awsRegion is not set" && exit 2
+        [[ -z ${params.ecrRepositoryName} ]] && echo "Parameter ecrRepositoryName is not set" && exit 2
+
+    elif [[ "${params.pushMode}" == "dockerhub" ]] 
+    then
+        [[ -z ${params.branchName} ]] && echo "Parameter branchName name is not set" && exit 2
+        [[ -z ${params.tag} ]] && echo "Parameter tag name is not set" && exit 2
+        [[ -z ${params.dockerhubRepository} ]] && echo "Parameter dockerhubRepository is not set" && exit 2
+    else
+        echo "DEFAULT TO FAILED"
+    fi
+    """
+}

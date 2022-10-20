@@ -1,0 +1,34 @@
+backend/.gradle/*
+backend/build/*
+/sql/.gradle
+backend/.idea/*
+.idea/*
+*.iml
+.gradle/*
+
+*/**/.envrc
+*/**/local_kube_config.yaml
+*/**/local_kube_config.yaml.eksctl.lock
+
+*/**/hidden.csv
+*/**/hidden.txt
+*/**/hidden.md
+*/**/.terraform
+*/**/.terraform.lock.hcl
+
+
+/Kubernetes/EKS-MIX/README.md
+devops-easy-learning-private
+test
+
+
+# Local .terraform directories
+**/.terraform/*
+
+# .tfstate files
+*.tfstate
+*.tfstate.*
+
+it/pipeline
+
+

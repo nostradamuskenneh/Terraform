@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>Quiz</title>
+		<link href="https://fonts.googleapis.com/css?family=Roboto+Slab" rel="stylesheet">
+		<link href="quiz2.css" rel="stylesheet">
+	</head>
+	<body>
+		<p style="text-align: center;"><button><div><p><h2></p><a id="save" href="Enregistrement.html"> ENREGISTREMENT </a></h2></p></div></button></p>
+		
+
+		<div id="quizContainer" class="container">
+			<div class="title">évaluation du risque de gravité au Covid-19</div>
+			<div id="question" class="question"></div>
+			<label class="option"><input type="radio" name="option" value="1" /> <span id="opt1"></span></label>
+			<label class="option"><input type="radio" name="option" value="2" /> <span id="opt2"></span></label>
+
+
+			<button id="nextButton" class="next-btn" onclick="loadNextQuestion();">Next / Suivant</button>
+			
+		</div>
+		<div id="result" class=" result" style="display:none;">
+			
+
+			
+			<div id="question1" class=""></div>
+			
+		    <div id="interpretation" class="question"><a href="index.html"> click here for registration </a> </div>
+		</div>
+
+
+		<script src="question2.js"></script>
+		<script src="quiz-script2.js"></script>
+		<script src="scripts.js"></script>
+	</body>
+</html>

@@ -1,0 +1,62 @@
+def timestamp = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone('UTC'))
+pipeline {
+    agent any
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '2', daysToKeepStr: '2'))
+        disableConcurrentBuilds()
+        timeout (time: 10, unit: 'MINUTES')
+        timestamps()
+    }
+    parameters {
+         string (name: 'clusterName', defaultValue: 'eks-test', description: 'Name of the cluster you where you want to create a namespace')
+         string (name: 'region', defaultValue: 'us-east-1', description: 'AWS region to execute commands in')
+         string (name: 'nameSpace', description: 'The namespace That you want to delete')
+     }
+    stages {
+        stage('Set k8s context') {
+            steps {
+                script {
+                    docker.withRegistry('','tia-dockerhub-credentials') {
+                        docker.image("leonardtia/devops-test-repo:develop").inside() {
+                            sh "aws eks update-kubeconfig --name ${params.clusterName} --region ${params.region}"
+                            sh 'kubectl config get-contexts'
+
+                            println(":: Deleting ${params.nameSpace} namespace in ${params.clusterName} cluster ::")
+                            sh """
+                            kubectl delete ns ${params.nameSpace}
+                            kubectl get ns
+                            """
+                        }
+                    }
+                }
+            }
+        }
+    }
+    post {
+        success {
+            slackSend baseUrl: 'https://hooks.slack.com/services/',
+            channel: 'learning', 
+            color: '#BDFFC3', 
+            message: 'Project Name : ' + JOB_NAME + ' \n Build Status : Build number ' + currentBuild.displayName + ' finished with status: SUCCESS ===> GOOD JOB! \n Build URL : ' + BUILD_URL, 
+            teamDomain: 'Devops easy learning', 
+            tokenCredentialId: 'tia-slack-token'
+        }
+        failure {
+            slackSend baseUrl: 'https://hooks.slack.com/services/',
+            channel: 'learning', 
+            color: '#FF9FA1', 
+            message: 'Project Name : ' + JOB_NAME + ' \n Build Status : Build number ' + currentBuild.displayName + ' finished with status: FAILED ===> Please check the console output to fix this job IMMEDIATELY ===> THANKS. \n Build URL : ' + BUILD_URL, 
+            teamDomain: 'Devops easy learning', 
+            tokenCredentialId: 'tia-slack-token'
+        }
+        unstable {
+            slackSend baseUrl: 'https://hooks.slack.com/services/',
+            channel: 'learning', 
+            color: '#FFFE89', 
+            message: 'Project Name : ' + JOB_NAME + ' \n Build Status : Build number ' + currentBuild.displayName + ' finished with status: UNSTABLE ===> Please check the console output to fix this job IMMEDIATELY ===> THANKS. \n Build URL : ' + BUILD_URL, 
+            teamDomain: 'Devops easy learning', 
+            tokenCredentialId: 'tia-slack-token'
+        } 
+    }
+}
+

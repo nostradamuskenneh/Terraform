@@ -1,0 +1,313 @@
+
+#!groovy
+
+def timestamp = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone('UTC'))
+pipeline {
+    agent any
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '2', daysToKeepStr: '2'))
+        disableConcurrentBuilds()
+        timeout (time: 10, unit: 'MINUTES')
+        timestamps()
+    }
+    environment {
+        HELM_VERSION = 'helm3'
+        HELM_ARTIFACTORY_PATH = ''
+     }
+    parameters {
+         string (name: 'clusterName', defaultValue: 'eks', description: 'Name of the cluster you are deploying to dry run the chart before deploying')
+         string (name: 'region', defaultValue: 'us-east-1', description: 'AWS region to execute commands in')
+         string (name: 'chartName', description: 'The name of the chart that you want to dry run')
+         string (name: 'chartVersion', description: 'The Version of the chart that you want to dry run')
+         string (name: 'nameSpace', description: 'The namespace where to deploy the chart')
+         string (name: 'branchName', defaultValue: 'tia-pipeline-test', description: 'The branch name of the chart that you want to deploy or dry run')
+         string (name: 'secretPath', defaultValue: '/ektech/datadog_api_key', description: 'The path where the secret is stored in AWS system manager')
+         string (name: 'helmSet', defaultValue: 'datadog.apiKey', description: 'The helm chart value that you want to overwrite')
+         choice (name: 'deploySource', choices: 'local\nremote', description: 'The helm chart source')
+         choice (name: 'deployMode', choices: 'dryRun\ninstall or upgrade', description: 'Deployment mode')
+         booleanParam (name: 'normalChart', defaultValue: 'false', description: 'If true, the chart will be install as normal chart with secret')
+         booleanParam (name: 'deployWithSecret', defaultValue: 'false', description: 'default is false if you dont want get the secret from AWS system manager, if set to true, it will get the secret from AWS system manager')
+         booleanParam (name: 'createServiceNowTicket', defaultValue: 'false', description: 'default is false if you dont want servicenow ticket, if set to true, it will create snow ticket')
+     }
+    stages {
+         stage ('Sanity Check'){
+             steps {
+                sanityCheck()
+             }
+         }
+        stage ('checkout') {
+            steps {
+                dir("${WORKSPACE}/scr") {
+                    checkout([
+                        $class: 'GitSCM',
+                        branches: [[name: "*/${params.branchName}"]],
+                        doGenerateSubmoduleConfigurations: false,
+                        extensions: [[$class: 'LocalBranch']],
+                        submoduleCfg: [],
+                        userRemoteConfigs: [[
+                        url: 'https://github.com/leonardtia1/tia-devops.git',
+                        credentialsId: 'tia-github-token'
+                        ]]
+                    ])
+                }
+            }
+        }
+        stage('Set k8s context') {
+            steps {
+                dir("${WORKSPACE}/scr/pipeline/terraform/resources/${params.resource}") {
+                    script {
+                        docker.withRegistry('','tia-dockerhub-credentials') {
+                            docker.image("leonardtia/devops-test-repo:develop").inside() {
+                                withCredentials([usernamePassword(credentialsId: 'aws-access', usernameVariable: 'AWS_ACCESS_KEY', passwordVariable: 'AWS_SECRET_KEY')]) {
+                                    sh """
+                                    export AWS_ACCESS_KEY_ID=\${AWS_ACCESS_KEY}
+                                    export AWS_SECRET_ACCESS_KEY=\${AWS_SECRET_KEY}
+                                    export AWS_DEFAULT_REGION=${params.awsRegion}
+                                    sh "aws eks update-kubeconfig --name ${params.clusterName} --region ${params.region}"
+                                    """ 
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        stage('Verify Helm is Up and Running') {
+            steps {
+                dir("${WORKSPACE}/scr/pipeline/terraform/resources/${params.resource}") {
+                    script {
+                        docker.withRegistry('','tia-dockerhub-credentials') {
+                            docker.image("leonardtia/devops-test-repo:develop").inside() {
+                                sh "$HELM_VERSION version"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        stage('Set k8s context') {
+            steps {
+                dir("${WORKSPACE}/scr/pipeline/terraform/resources/${params.resource}") {
+                    script {
+                        docker.withRegistry('','tia-dockerhub-credentials') {
+                            docker.image("leonardtia/devops-test-repo:develop").inside() {
+                                withCredentials([usernamePassword(credentialsId: 'aws-access', usernameVariable: 'AWS_ACCESS_KEY', passwordVariable: 'AWS_SECRET_KEY')]) {
+                                    sh """
+                                    export AWS_ACCESS_KEY_ID=\${AWS_ACCESS_KEY}
+                                    export AWS_SECRET_ACCESS_KEY=\${AWS_SECRET_KEY}
+                                    export AWS_DEFAULT_REGION=${params.awsRegion}
+                                    sh "aws eks update-kubeconfig --name ${params.clusterName} --region ${params.region}"
+                                    """ 
+                                    if (params.chartName == 'sealed-secrets'){
+                                        lintChart()
+                                                    sealedsecrets()
+                                    }
+                                    if (params.deployWithSecret == true){
+                                        lintChart()
+                                        secretChart()
+                                    }
+                                    if (params.normalChart == true){
+                                        lintChart()
+                                        normalChart()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    post {
+        success {
+            slackSend baseUrl: 'https://hooks.slack.com/services/',
+            channel: 'learning', 
+            color: '#BDFFC3', 
+            message: 'Project Name : ' + JOB_NAME + ' \n Build Status : Build number ' + currentBuild.displayName + ' finished with status: SUCCESS ===> GOOD JOB! \n Build URL : ' + BUILD_URL, 
+            teamDomain: 'Devops easy learning', 
+            tokenCredentialId: 'tia-slack-token'
+        }
+        failure {
+            slackSend baseUrl: 'https://hooks.slack.com/services/',
+            channel: 'learning', 
+            color: '#FF9FA1', 
+            message: 'Project Name : ' + JOB_NAME + ' \n Build Status : Build number ' + currentBuild.displayName + ' finished with status: FAILED ===> Please check the console output to fix this job IMMEDIATELY ===> THANKS. \n Build URL : ' + BUILD_URL, 
+            teamDomain: 'Devops easy learning', 
+            tokenCredentialId: 'tia-slack-token'
+        }
+        unstable {
+            slackSend baseUrl: 'https://hooks.slack.com/services/',
+            channel: 'learning', 
+            color: '#FFFE89', 
+            message: 'Project Name : ' + JOB_NAME + ' \n Build Status : Build number ' + currentBuild.displayName + ' finished with status: UNSTABLE ===> Please check the console output to fix this job IMMEDIATELY ===> THANKS. \n Build URL : ' + BUILD_URL, 
+            teamDomain: 'Devops easy learning', 
+            tokenCredentialId: 'tia-slack-token'
+        } 
+    }
+}
+
+def lintChart()
+{
+    println(":: Updating Dependencies for ${params.chartName} ::")
+    sh "$HELM_VERSION dependency update  ../../charts/${params.chartName}"
+    println(":: Linting ${params.chartName} ::")
+    sh "$HELM_VERSION lint -f ${params.chartName}.yaml ../../charts/${params.chartName}"
+}
+
+def secretChart() {   
+    if (params.deploySource == "local" && params.deployMode == "dryRun") {
+        aws_secret_key = sh (script: "aws secretsmanager get-secret-value --secret-id ${params.secretPath} --region ${params.region} --query SecretString --output text", returnStdout:true).trim()
+        
+        println(":: Dry Run for ${params.chartName} chart ::")
+        sh """
+            set +x
+            $HELM_VERSION upgrade --dry-run --debug ${params.chartName} ../../charts/${params.chartName} --set ${params.helmSet}=${aws_secret_key} --values ${params.chartName}.yaml --namespace ${params.nameSpace} --version ${params.chartVersion} 
+            set -x
+            """
+        }
+    if (params.deploySource == "remote" && params.deployMode == "dryRun") {
+        aws_secret_key = sh (script: "aws secretsmanager get-secret-value --secret-id ${params.secretPath} --region ${params.region} --query SecretString --output text", returnStdout:true).trim()
+
+        println(":: Dry Run for ${params.chartName} chart ::")
+        sh """
+            $HELM_VERSION repo add stable $HELM_ARTIFACTORY_PATH
+            set +x
+            $HELM_VERSION upgrade --dry-run --debug ${params.chartName} stable/${params.chartName} ---set ${params.helmSet}=${aws_secret_key} --values ${params.chartName}.yaml --namespace ${params.nameSpace} --version ${params.chartVersion} 
+            set -x
+            """
+        }
+    if (params.deploySource == "local" && params.deployMode == "install or upgrade") {
+        println(":: Installing / Upgrading ${params.chartName} chart ::")
+        aws_secret_key = sh (script: "aws secretsmanager get-secret-value --secret-id ${params.secretPath} --region ${params.region} --query SecretString --output text", returnStdout:true).trim()
+
+        sh """
+            set +x
+            $HELM_VERSION upgrade ${params.chartName} --install ../../charts/${params.chartName} --set ${params.helmSet}=${aws_secret_key} --values ${params.chartName}.yaml --namespace ${params.nameSpace} --version ${params.chartVersion}
+            set -x
+            """
+        } 
+    if (params.deploySource == "remote" && params.deployMode == "install or upgrade") {
+        println(":: Installing / Upgrading ${params.chartName} chart ::")
+        aws_secret_key = sh (script: "aws secretsmanager get-secret-value --secret-id ${params.secretPath} --region ${params.region} --query SecretString --output text", returnStdout:true).trim()
+
+        sh "$HELM_VERSION repo add stable $HELM_ARTIFACTORY_PATH"
+        sh """
+            set +x
+            $HELM_VERSION upgrade ${params.chartName} --install stable/${params.chartName} --set ${params.helmSet}=${aws_secret_key} --values ${params.chartName}.yaml --namespace ${params.nameSpace} --version ${params.chartVersion}
+            set -x
+            """
+    }  
+}
+
+def sealedsecrets() {   
+    if (params.deploySource == "local" && params.deployMode == "dryRun") {
+        withCredentials([file(credentialsId: 'sealed_secrets_key', variable: 'KEY')]) {
+            println(":: Dry Run for ${params.chartName} chart ::")
+                sh """
+                set +x
+                kubectl apply -f ${KEY} --namespace ${params.nameSpace}
+                $HELM_VERSION upgrade --dry-run --debug ${params.chartName} ../../charts/${params.chartName} --values ${params.chartName}.yaml --namespace ${params.nameSpace} --version ${params.chartVersion} 
+                set -x
+                """
+            }      
+        }
+    if (params.deploySource == "remote" && params.deployMode == "dryRun") {
+        withCredentials([file(credentialsId: 'sealed_secrets_key', variable: 'KEY')]) {
+            println(":: Dry Run for ${params.chartName} chart ::")
+                sh """
+                set +x
+                $HELM_VERSION repo add stable $HELM_ARTIFACTORY_PATH
+                kubectl apply -f ${KEY} --namespace ${params.nameSpace}
+                $HELM_VERSION upgrade --dry-run --debug ${params.chartName} stable/${params.chartName} --values ${params.chartName}.yaml --namespace ${params.nameSpace} --version ${params.chartVersion} 
+                set -x
+                """
+            }      
+        }
+    if (params.deploySource == "local" && params.deployMode == "install or upgrade")  {
+        withCredentials([file(credentialsId: 'sealed_secrets_key', variable: 'KEY')]) {
+            println(":: Installing / Upgrading ${params.chartName} chart ::")
+                sh """
+                set +x
+                kubectl apply -f ${KEY} --namespace ${params.nameSpace}
+                $HELM_VERSION upgrade ${params.chartName} --install ../../charts/${params.chartName} --values ${params.chartName}.yaml --namespace ${params.nameSpace} --version ${params.chartVersion} 
+                set -x
+                """
+            }      
+        }
+    if (params.deploySource == "remote" && params.deployMode == "install or upgrade")   {
+        withCredentials([file(credentialsId: 'sealed_secrets_key', variable: 'KEY')]) {
+            println(":: Installing / Upgrading ${params.chartName} chart ::")
+                sh """
+                set +x
+                $HELM_VERSION repo add stable $HELM_ARTIFACTORY_PATH
+                kubectl apply -f ${KEY} --namespace ${params.nameSpace}
+                $HELM_VERSION upgrade ${params.chartName} --install stable/${params.chartName} --values ${params.chartName}.yaml --namespace ${params.nameSpace} --version ${params.chartVersion} 
+                set -x
+                """
+            }      
+        }
+}
+
+def normalChart() {   
+    if (params.deploySource == "local" && params.deployMode == "dryRun") {
+        println(":: Dry Run for ${params.chartName} chart ::")
+        sh """
+            set +x
+            $HELM_VERSION upgrade --dry-run --debug ${params.chartName} ../../charts/${params.chartName} --values ${params.chartName}.yaml --namespace ${params.nameSpace} --version ${params.chartVersion}
+            set -x
+            """
+        }
+    if (params.deploySource == "remote" && params.deployMode == "dryRun") {
+        println(":: Dry Run for ${params.chartName} chart ::")
+        sh """
+            $HELM_VERSION repo add stable $HELM_ARTIFACTORY_PATH
+            set +x
+            $HELM_VERSION upgrade --dry-run --debug ${params.chartName} stable/${params.chartName} --values ${params.chartName}.yaml --namespace ${params.nameSpace} --version ${params.chartVersion}
+            set -x
+            """
+        }
+    if (params.deploySource == "local" && params.deployMode == "install or upgrade") {
+        println(":: Installing / Upgrading ${params.chartName} chart ::")
+        sh """
+            set +x
+            $HELM_VERSION upgrade ${params.chartName} --install ../../charts/${params.chartName} --values ${params.chartName}.yaml --namespace ${params.nameSpace} --version ${params.chartVersion}
+            set -x
+            """
+        } 
+    if (params.deploySource == "remote" && params.deployMode == "install or upgrade") {
+        println(":: Installing / Upgrading ${params.chartName} chart ::")
+        sh "$HELM_VERSION repo add stable $HELM_ARTIFACTORY_PATH"
+        sh """
+            set +x
+            $HELM_VERSION upgrade ${params.chartName} --install stable/${params.chartName} --values ${params.chartName}.yaml --namespace ${params.nameSpace} --version ${params.chartVersion}
+            set -x
+            """
+    }
+}
+
+
+def sanityCheck()
+{
+    println("::=========================================================================================::")
+    sh """
+    [[ -z ${params.account} ]] && echo "Parameter account name is not set" && exit 2
+    [[ -z ${params.clusterName} ]] && echo "Parameter cluster name is not set" && exit 2
+    [[ -z ${params.region} ]] && echo "Parameter region name is not set" && exit 2
+    [[ -z ${params.chartName} ]] && echo "Parameter chart name is not set" && exit 2
+    [[ -z ${params.chartVersion} ]] && echo "Parameter version is not set" && exit 2
+    [[ -z ${params.nameSpace} ]] && echo "Parameter namespace is not set" && exit 2
+    [[ -z ${params.branchName} ]] && echo "Parameter branch name is not set" && exit 2
+
+    if [[ ${params.deployWithSecret} = "true" ]]
+    then
+        [[ -z ${params.secretPath} ]] && echo "Parameter path where the secret is stored in AWS system manager is not set" && exit 2
+        [[ -z ${params.helmSet} ]] && echo "Parameter helm chart value that you want to overwrite not set" && exit 2
+    fi
+
+    if [[ ${params.normalChart} = "true" ]] && [[ ${params.deployWithSecret} = "true" ]]
+        then
+        echo "Please, check either the normalChart or deployWithSecret. You cannot chose both at the same time"
+        exit 2
+    fi
+    """
+}

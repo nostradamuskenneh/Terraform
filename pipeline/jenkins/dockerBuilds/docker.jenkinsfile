@@ -1,0 +1,176 @@
+
+def timestamp = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone('UTC'))
+pipeline {
+    agent any
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '2', daysToKeepStr: '2'))
+        disableConcurrentBuilds()
+        timeout (time: 10, unit: 'MINUTES')
+        timestamps()
+    }
+    parameters {
+        string (name: 'branchName', defaultValue: 'develop', description: 'The branch name docker image')
+        choice (name: 'pushMode', choices: '\ndockerhub\naws-ecr\nboth', description: 'Both will push the image to dockerhub and AWS ECR')
+        string (name: 'dockerhubRepository', defaultValue: 'leonardtia/devops-test-repo', description: 'The Dockerhub repository where to push the image')
+        string (name: 'tag', defaultValue: 'develop', description: 'The image name')
+        string(name: 'docker', defaultValue: 'builder', description: 'Name of the docker image build needed')
+        string(name: 'awsAccountNumber', defaultValue: '064137398917', description: 'Account type')
+        string(name: 'awsRegion', defaultValue: 'us-east-1', description: 'Account region')
+        string(name: 'ecrRepositoryName', defaultValue: 'development', description: 'ECR repository name')
+    }
+    environment {
+        ECR_REPOSITORY_URI = "${params.awsAccountNumber}.dkr.ecr.${params.awsRegion}.amazonaws.com/${params.ecrRepositoryName}"
+    }
+    stages {
+        stage('Sanity Check') {
+            steps {
+                sanityCheck()
+            }
+        }
+        stage ('checkout') {
+            steps {
+                dir("${WORKSPACE}/scr") {
+                    checkout([
+                        $class: 'GitSCM',
+                        branches: [[name: "*/${params.branchName}"]],
+                        doGenerateSubmoduleConfigurations: false,
+                        extensions: [[$class: 'LocalBranch']],
+                        submoduleCfg: [],
+                        userRemoteConfigs: [[
+                        url: 'https://github.com/leonardtia1/tia-devops.git',
+                        credentialsId: 'tia-github-token'
+                        ]]
+                    ])
+                }
+            }
+        }
+        stage ('Install packages') {
+            steps {
+                sh '''
+                sudo cat /etc/*release
+                sudo apt update -y 
+                sudo apt install curl -y 
+
+                sudo aws --version || true
+                if [ $? -eq 0 ]
+                then 
+                    echo 'AWS CLI IS ALREADY INSTALL'
+                else
+                    sudo curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" 
+                    sudo unzip awscliv2.zip 
+                    sudo aws/install 
+                    sudo rm -rf awscliv2.zip 
+                    sudo rm -rf aws
+                    sudo aws --version
+                fi
+                '''
+            }
+        }
+        stage ('Building the image') {
+            steps {
+                dir("${WORKSPACE}/scr/pipeline/docker/${params.docker}") {
+                    script {
+                        println('::Building the image and pushing into Dockerhub::')
+                        if (params.pushMode == 'dockerhub') {
+                            docker.withRegistry('','tia-dockerhub-credentials') {
+                            dockerhub()
+                            }
+                        }
+                        if (params.pushMode == 'aws-ecr') {
+                            println('::Building the image and pushing into AWS ECR::')
+                            withCredentials([usernamePassword(credentialsId: 'aws-access', usernameVariable: 'AWS_ACCESS_KEY', passwordVariable: 'AWS_SECRET_KEY')]) {
+                            ecr()
+                            }
+                        }
+                        if (params.pushMode == 'both') {
+                            withCredentials([usernamePassword(credentialsId: 'aws-access', usernameVariable: 'AWS_ACCESS_KEY', passwordVariable: 'AWS_SECRET_KEY')]) {
+                            println('::Building the image and pushing into Dockerhub::')
+                            docker.withRegistry('','tia-dockerhub-credentials') {
+                            dockerhub()
+
+                            println('::Building the image and pushing into AWS ECR::')
+                            ecr()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+def dockerhub() {
+    dockerImage = docker.build("${params.dockerhubRepository}" + ":${params.tag}")
+    dockerImage.push()
+}
+
+def ecr() {
+    sh """
+    mkdir -p ~/.aws
+    cat <<EOF > ~/.aws/credentials
+    [default]
+    aws_access_key_id = ${AWS_ACCESS_KEY}
+    aws_secret_access_key = ${AWS_SECRET_KEY}
+EOF
+
+    cat <<EOF > ~/.aws/config
+    [default]
+    region = ${params.awsRegion}
+    output = json
+EOF
+    """
+
+    sh """
+    echo '==========================================================================================='
+    cat ~/.aws/credentials
+    cat ~/.aws/config
+    """
+
+    ecrRepositoryURL = "${params.awsAccountNumber}.dkr.ecr.${params.awsRegion}.amazonaws.com"
+    dockerImage = docker.build("${ecrRepositoryURL}" + "/" + "${params.ecrRepositoryName}" + ":${params.tag}")
+        sh """
+        aws s3 ls
+        aws ecr get-login-password --region ${params.awsRegion} | docker login --username AWS --password-stdin ${ecrRepositoryURL}
+        """
+    dockerImage.push()
+}
+
+def dockerhub_ecr() {
+    dockerImage = docker.build("${params.account}" + ":${params.account}")
+}
+
+def sanityCheck()
+{
+    println("::=========================================================================================::")
+    sh """
+    [[ -z "${params.pushMode}" ]] && echo "Parameter pushMode name is not set" && exit 2
+
+    if [[ "${params.pushMode}" == "both" ]]
+    then
+        [[ -z ${params.branchName} ]] && echo "Parameter branchName name is not set" && exit 2
+        [[ -z ${params.dockerhubRepository} ]] && echo "Parameter dockerhubRepository is not set" && exit 2
+        [[ -z ${params.tag} ]] && echo "Parameter tag name is not set" && exit 2
+        [[ -z ${params.awsAccountNumber} ]] && echo "Parameter awsAccountNumber is not set" && exit 2
+        [[ -z ${params.awsRegion} ]] && echo "Parameter awsRegion is not set" && exit 2
+        [[ -z ${params.ecrRepositoryName} ]] && echo "Parameter ecrRepositoryName is not set" && exit 2
+
+    elif [[ "${params.pushMode}" == "aws-ecr" ]] 
+    then
+        [[ -z ${params.branchName} ]] && echo "Parameter branchName name is not set" && exit 2
+        [[ -z ${params.tag} ]] && echo "Parameter tag name is not set" && exit 2
+        [[ -z ${params.awsAccountNumber} ]] && echo "Parameter awsAccountNumber is not set" && exit 2
+        [[ -z ${params.awsRegion} ]] && echo "Parameter awsRegion is not set" && exit 2
+        [[ -z ${params.ecrRepositoryName} ]] && echo "Parameter ecrRepositoryName is not set" && exit 2
+
+    elif [[ "${params.pushMode}" == "dockerhub" ]] 
+    then
+        [[ -z ${params.branchName} ]] && echo "Parameter branchName name is not set" && exit 2
+        [[ -z ${params.tag} ]] && echo "Parameter tag name is not set" && exit 2
+        [[ -z ${params.dockerhubRepository} ]] && echo "Parameter dockerhubRepository is not set" && exit 2
+    else
+        echo "DEFAULT TO FAILED"
+    fi
+    """
+}

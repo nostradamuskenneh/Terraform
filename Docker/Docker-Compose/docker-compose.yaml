@@ -1,0 +1,125 @@
+version: '3'
+services:
+  jenkins:
+    image: jenkins/jenkins:lts
+    ports:
+    - "8070:8080"
+  nexus:
+    image: sonatype/nexus3
+    ports:
+    - "8081:8081"
+  sonarqube:
+    image: sonarqube
+    ports:
+    - "9000:9000"
+  grafana:
+    image: grafana/grafana
+    ports:
+    - "3000:3000"
+  splunk:
+    image: splunk/splunk:latest
+    ports:
+    - "8000:8000"
+    environment:
+    - SPLUNK_START_ARGS=--accept-license
+    - SPLUNK_PASSWORD=<password>
+  mysql:
+    image: mysql
+    ports:
+    - "3306:3306"
+    environment:
+    - MYSQL_ROOT_PASSWORD=password
+    - MYSQL_USER=tia
+    - MYSQL_PASSWORD=password
+    - MYSQL_DATABASE=demodb
+  postgres:
+    image: postgres
+    hostname: postgres
+    ports:
+      - "6543:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: TEST_SM
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  pgadmin:
+    image: dpage/pgadmin4
+    depends_on:
+      - postgres
+    ports:
+      - "5555:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: pgadmin4@pgadmin.org
+      PGADMIN_DEFAULT_PASSWORD: admin
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+
+
+
+version: '3'
+services:
+  app:
+    image: 'jc21/nginx-proxy-manager:latest'
+    ports:
+      - '80:80'
+      - '81:81'
+      - '443:443'
+    environment:
+      DB_MYSQL_HOST: "db"
+      DB_MYSQL_PORT: 3306
+      DB_MYSQL_USER: "npm"
+      DB_MYSQL_PASSWORD: "npm"
+      DB_MYSQL_NAME: "npm"
+    volumes:
+      - ./data:/data
+      - ./letsencrypt:/etc/letsencrypt
+    networks:
+      - frontend
+  db:
+    image: 'jc21/mariadb-aria:latest'
+    environment:
+      MYSQL_ROOT_PASSWORD: 'npm'
+      MYSQL_DATABASE: 'npm'
+      MYSQL_USER: 'npm'
+      MYSQL_PASSWORD: 'npm'
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    networks:
+      - frontend
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - frontend
+  sonarqube:
+    image: sonarqube
+    ports:
+      - "9000:9000"
+    networks:
+      - frontend
+  nexus:
+    image: sonatype/nexus3
+    ports:
+      - "8081:8081"
+    networks:
+      - frontend
+  splunk:
+    image: splunk/splunk:latest
+    ports:
+      - "8000:8000"
+    networks:
+      - frontend
+
+networks:
+  frontend:
+    driver: bridge
+
+
+   
+  

@@ -1,0 +1,129 @@
+
+
+body{
+	font-family: 'Roboto Slab', serif;
+	background: url('tatiana.jpg');
+	background-size: cover;
+}
+
+.container{
+	min-height: 350px;
+	width: 80%;
+	position: absolute;
+	top:50%;
+	left:50%;
+	transform: translateX(-50%) translateY(-50%);
+	background: rgba(255, 255, 255, 0.5);
+	padding: 20px;
+	border: 1px solid #08038C;
+	box-shadow: 0 0 8px 3px #fff;
+}
+
+.title{
+	padding-top: 20px;
+	text-align: center;
+	font-size: 36px;
+	text-transform: uppercase;
+	color: #08038C;
+}
+
+.question{
+	padding: 20px;
+	font-size: 18px;
+	background: #08038C;
+	border-radius: 20px;
+	margin: 10px 0 10px 0;
+	color: #f6f6f6;
+}
+
+.option{
+	width: 40%;
+	display: inline-block;
+	padding: 10px 0 10px 15px;
+	vertical-align: middle;
+	background: rgba(255, 255, 255, 0.5);
+	margin: 10px 0 10px 10px;
+	color: #000000;
+	border-radius: 20px;
+}
+
+.option:hover{
+	background: #08038C;
+	color: #f6f6f6;
+}
+
+.next-btn, 
+.prev-btn{
+	border: none;
+	outline: none;
+	background: rgba(255, 25, 255, 0.5);
+	width: 100px;
+	height: 35px;
+	border-radius: 20px;
+	cursor: pointer;
+	float: right;
+	margin: 10px;
+}
+
+.next-btn:hover,
+.prev-btn:hover{
+	background: #08038C;
+	color: #f6f6f6;
+}
+
+.result{
+	min-height: 100px;
+	text-align: center;
+	font-size: 30px;
+	width: 80%;
+	position: absolute;
+	top:50%;
+	left:50%;
+	transform: translateX(-50%) translateY(-50%);
+	background: rgba(255, 255, 255, 0.5);
+	padding: 20px;
+	border: 1px solid #08038C;
+	box-shadow: 0 0 8px 3px #fff;
+}
+.interpretation{
+	height: 10px;
+	text-align: below ;
+	font-size: 25px;
+	margin: 10px 0 10px 10px;
+}
+
+.option input:checked .option{
+	background: #08038C;
+	color: #000;
+}
+.btn{
+	border: none;
+	height: 50px;
+	padding: 10px;
+	border-radius: 20px;
+	text-decoration: none;
+	display: inline-block;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
